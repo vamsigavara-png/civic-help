@@ -9,16 +9,16 @@ async function main() {
   console.log("Seeding database...");
 
   const secret = authenticator.generateSecret();
-  const passwordHash = await hashPassword("admin123");
+  const passwordHash = await hashPassword("Vamsi778+");
 
   const admin = await prisma.user.upsert({
-    where: { email: "admin@helphub.local" },
+    where: { email: "vamsigavara964@gmail.com" },
     update: {},
     create: {
-      email: "admin@helphub.local",
+      email: "vamsigavara964@gmail.com",
       password: passwordHash,
       role: "SUPER_ADMIN",
-      fullName: "System Administrator",
+      fullName: "Vamsi Gavara",
       department: "Operations",
       totpVerified: true,
       totpSecret: secret,
@@ -29,8 +29,8 @@ async function main() {
   const qr = await QRCode.toDataURL(otpAuth);
 
   console.log("\n✓ Super admin created");
-  console.log("  Email: admin@helphub.local");
-  console.log("  Password: admin123");
+  console.log("  Email: vamsigavara964@gmail.com");
+  console.log("  Password: Vamsi778+");
   console.log("\n2FA QR Code:");
   console.log(qr);
 }

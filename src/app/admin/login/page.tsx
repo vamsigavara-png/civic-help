@@ -6,8 +6,8 @@ import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("vamsigavara964@gmail.com");
+  const [password, setPassword] = useState("Vamsi778+");
   const [csrfToken, setCSRFToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -107,7 +107,7 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-500">
-          Demo credentials: admin@helphub.local / admin123
+          Demo admin access: vamsigavara964@gmail.com / Vamsi778+
         </p>
 
         <div className="mt-6 border-t border-line pt-6">
