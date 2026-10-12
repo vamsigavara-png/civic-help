@@ -1,0 +1,365 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================================
+// Auth & Identity
+// ============================================================================
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  password  String
+  role      UserRole   @default(OFFICER)
+  fullName  String
+  department String?
+  active    Boolean    @default(true)
+  
+  // 2FA
+  totpSecret String?
+  totpVerified Boolean @default(false)
+  
+  // Audit
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  lastLogin DateTime?
+  
+  // Relations
+  complaints Complaint[]
+  auditLogs AuditLog[]
+  messages Message[]
+  
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  OFFICER
+  VIEWER
+}
+
+// ============================================================================
+// Core Complaint Model
+// ============================================================================
+
+model Complaint {
+  id        String     @id @default(cuid())
+  
+  // Public complaint metadata
+  complaintNumber String @unique // e.g., "HH-2024-001"
+  title     String
+  category  ComplaintCategory
+  description String
+  status    ComplaintStatus @default(SUBMITTED)
+  severity  SeveritySetting @default(MEDIUM)
+  
+  // Privacy: tracking code is stored as hash only
+  trackingCodeHash String @unique
+  
+  // Location (generalized for public, precise for admin)
+  locationCity String?
+  locationDistrict String?
+  locationLatitude Float?
+  locationLongitude Float?
+  locationAddress String?
+  
+  // Spam/abuse detection
+  contentHash String? @unique
+  autoFlagged Boolean @default(false)
+  autoFlagReason String?
+  
+  // Public engagement
+  abuseReports Int @default(0)
+  isPublished Boolean @default(false)
+  publishedAt DateTime?
+  
+  // Officer assignment
+  assignedToId String?
+  assignedTo User? @relation(fields: [assignedToId], references: [id])
+  
+  // Complaint status tracking
+  verificationStatus VerificationStatus @default(PENDING)
+  verifiedAt DateTime?
+  resolvedAt DateTime?
+  
+  // Audit
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  // Relations
+  privateData PrivateComplainantData?
+  messages Message[]
+  evidence Evidence[]
+  auditLogs AuditLog[]
+  evidenceAccessLogs EvidenceAccessLog[]
+  report ComplaintReport?
+  
+  @@index([complaintNumber])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([createdAt])
+  @@map("complaints")
+}
+
+enum ComplaintCategory {
+  HOUSING
+  WORKPLACE
+  COMMUNITY_SAFETY
+  PUBLIC_SERVICE
+  HEALTHCARE
+  EDUCATION
+  OTHER
+}
+
+enum ComplaintStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFICATION_REQUIRED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  ARCHIVED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  UNVERIFIED
+  INCONCLUSIVE
+}
+
+enum SeveritySetting {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ============================================================================
+// Private Complainant Data (Separate Table for Privacy)
+// ============================================================================
+
+model PrivateComplainantData {
+  id        String     @id @default(cuid())
+  complaintId String   @unique
+  complaint Complaint  @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  
+  // Identity (never in public queries)
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  dateOfBirth DateTime?
+  
+  // Address (never in public queries)
+  fullAddress String?
+  
+  // Preferences
+  preferredLanguage String @default("en")
+  
+  // Audit
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  @@map("private_complainant_data")
+}
+
+// ============================================================================
+// Evidence (Private, Audit-Logged)
+// ============================================================================
+
+model Evidence {
+  id        String     @id @default(cuid())
+  complaintId String
+  complaint Complaint  @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  
+  fileName  String
+  fileSize  Int
+  mimeType  String
+  
+  // Storage reference (actual file in private S3)
+  storageKey String @unique
+  
+  // Malware scan status
+  scanStatus ScanStatus @default(PENDING)
+  scanedAt DateTime?
+  
+  // Access control
+  accessLogs EvidenceAccessLog[]
+  
+  // Audit
+  uploadedById String
+  uploadedAt DateTime @default(now())
+  
+  @@index([complaintId])
+  @@index([scanStatus])
+  @@map("evidence")
+}
+
+enum ScanStatus {
+  PENDING
+  SCANNING
+  CLEAN
+  FAILED
+  QUARANTINED
+}
+
+// ============================================================================
+// Audit Logging
+// ============================================================================
+
+model AuditLog {
+  id        String     @id @default(cuid())
+  
+  action    String     // e.g., "VIEW_COMPLAINT", "UPDATE_STATUS", "DOWNLOAD_EVIDENCE"
+  resource  String     // e.g., "complaint", "user"
+  resourceId String
+  
+  performedById String
+  performedBy User      @relation(fields: [performedById], references: [id])
+  
+  complaintId String?
+  complaint Complaint?  @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+  
+  details   String?     // JSON details
+  ipAddress String?
+  userAgent String?
+  
+  createdAt DateTime   @default(now())
+  
+  @@index([performedById])
+  @@index([complaintId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model EvidenceAccessLog {
+  id        String     @id @default(cuid())
+  
+  evidenceId String
+  evidence  Evidence    @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  
+  complaintId String
+  complaint  Complaint   @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  
+  accessedById String
+  accessedAt DateTime @default(now())
+  
+  downloadedAt DateTime?
+  expiresAt DateTime?
+  
+  @@index([evidenceId])
+  @@index([complaintId])
+  @@index([accessedById])
+  @@map("evidence_access_logs")
+}
+
+// ============================================================================
+// Messaging (Anonymous, Audit-Logged)
+// ============================================================================
+
+model Message {
+  id        String     @id @default(cuid())
+  
+  complaintId String
+  complaint  Complaint   @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  
+  senderId  String?     // null = complainant (anonymous)
+  sender    User?       @relation(fields: [senderId], references: [id])
+  
+  content   String
+  
+  isInternalNote Boolean @default(false)
+  
+  createdAt DateTime   @default(now())
+  
+  @@index([complaintId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+// ============================================================================
+// Spam/Duplicate Detection
+// ============================================================================
+
+model ComplaintReport {
+  id        String     @id @default(cuid())
+  
+  complaintId String   @unique
+  complaint  Complaint  @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  
+  // Spam detection
+  linkCount Int @default(0)
+  hasRepetitiveContent Boolean @default(false)
+  duplicateCount Int @default(0)
+  
+  // Flagging
+  flagged   Boolean    @default(false)
+  flagReason String?
+  flaggedAt DateTime?
+  
+  // Review status
+  reviewed  Boolean    @default(false)
+  reviewedBy String?
+  reviewedAt DateTime?
+  decision  ReportDecision?
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  @@map("complaint_reports")
+}
+
+enum ReportDecision {
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+// ============================================================================
+// Rate Limiting (Postgres-backed for now, switch to Redis for production)
+// ============================================================================
+
+model RateLimit {
+  id        String     @id @default(cuid())
+  
+  identifier String    // IP address or user ID
+  endpoint  String     // e.g., "/api/complaint"
+  
+  count     Int        @default(1)
+  resetAt   DateTime
+  
+  @@unique([identifier, endpoint])
+  @@index([resetAt])
+  @@map("rate_limits")
+}
+
+// ============================================================================
+// Sessions (JWT-backed, but can store refresh tokens here)
+// ============================================================================
+
+model Session {
+  id        String     @id @default(cuid())
+  
+  userId    String
+  // user      User       @relation(fields: [userId], references: [id])
+  
+  token     String     @unique
+  expiresAt DateTime
+  
+  createdAt DateTime   @default(now())
+  
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
